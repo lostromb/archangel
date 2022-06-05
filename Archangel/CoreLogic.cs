@@ -2,7 +2,6 @@
 using Durandal.Common.Logger;
 using Durandal.Common.Tasks;
 using Durandal.Common.Time;
-using Durandal.Common.Utils.Json;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -79,7 +78,7 @@ namespace Archangel
             }
 
             _cancelizer = new CancellationTokenSource();
-            IRealTimeProvider backgroundThreadTime = realTime.Fork();
+            IRealTimeProvider backgroundThreadTime = realTime.Fork("MainProgramLoop");
             _backgroundTask = DurandalTaskExtensions.LongRunningTaskFactory.StartNew(async () =>
             {
                 try
@@ -95,13 +94,14 @@ namespace Archangel
 
         public async Task Stop()
         {
-            if (_backgroundTask == null)
+            Task bgTaskClosure = _backgroundTask;
+            if (bgTaskClosure == null)
             {
                 throw new InvalidOperationException();
             }
 
             _cancelizer.Cancel();
-            await _backgroundTask;
+            await bgTaskClosure;
         }
 
         private async Task<MonitorState> ReadFile()

@@ -1,8 +1,8 @@
 ﻿using Durandal.API;
 using Durandal.Common.Audio;
-using Durandal.Common.Audio.Interfaces;
-using Durandal.Common.Audio.Mixer;
+using Durandal.Common.Audio.Components;
 using Durandal.Common.File;
+using Durandal.Common.Instrumentation;
 using Durandal.Common.LG.Statistical;
 using Durandal.Common.Logger;
 using Durandal.Common.NLP;
@@ -10,12 +10,12 @@ using Durandal.Common.NLP.Feature;
 using Durandal.Common.NLP.Language;
 using Durandal.Common.NLP.Language.English;
 using Durandal.Common.Speech.TTS;
-using Durandal.Common.Speech.TTS.SAPI;
 using Durandal.Common.Tasks;
 using Durandal.Common.Time;
 using Durandal.Common.Utils;
 using Durandal.Extensions.NAudio;
 using Durandal.Extensions.NAudio.Devices;
+using Durandal.Extensions.Sapi;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -30,12 +30,15 @@ namespace Archangel
 {
     public class MainApp : IDisposable
     {
-        private readonly IAudioDevice _audioDevice;
-        private readonly NAudioMixer _mixer;
+        private readonly IAudioRenderDevice _audioDevice;
+        private readonly IAudioGraph _outputAudioGraph;
+        private readonly LinearMixerAutoConforming _outputMixer;
+        private readonly AudioSampleFormat _outputAudioFormat;
         private readonly ILogger _logger;
         private readonly ISpeechSynth _speechSynth;
         private readonly StatisticalLGEngine _lgEngine;
         private readonly IFileSystem _fileSystem;
+        private readonly IThreadPool _threadPool;
         private readonly CoreLogic _logic;
         private bool _disposed = false;
 
@@ -43,21 +46,24 @@ namespace Archangel
         {
             _logger = new FileLogger();
             _fileSystem = new WindowsFileSystem(_logger.Clone("FileSystem"));
+            _threadPool = new TaskThreadPool(NullMetricCollector.Singleton, DimensionSet.Empty);
 
-            IDictionary<string, NLPTools> nlpTools = new Dictionary<string, NLPTools>();
-            nlpTools.Add("en-us", new NLPTools()
+            NLPToolsCollection nlpTools = new NLPToolsCollection();
+            nlpTools.Add(LanguageCode.ENGLISH, new NLPTools()
             {
                 WordBreaker = new EnglishWholeWordBreaker(),
                 FeaturizationWordBreaker = new EnglishWordBreaker(),
-                EditDistance = DurandalUtils.NormalizedEditDistance,
+                EditDistance = StringUtils.NormalizedEditDistance,
                 LGFeatureExtractor = new EnglishLGFeatureExtractor(),
                 CultureInfoFactory = new WindowsCultureInfoFactory(),
                 SpeechTimingEstimator = new EnglishSpeechTimingEstimator()
             });
 
-            _mixer = new NAudioMixer(_logger.Clone("AudioMixer"));
-            _audioDevice = new DirectSoundPlayer(_mixer, _logger.Clone("AudioDevice"));
-            _speechSynth = new SapiSpeechSynth(_logger.Clone("SAPI"), null);
+            _outputAudioFormat = AudioSampleFormat.Stereo(44100);
+            _outputAudioGraph = new AudioGraph(AudioGraphCapabilities.None, _logger.Clone("AudioGraph"));
+            _audioDevice = new DirectSoundPlayer(_outputAudioGraph, _outputAudioFormat, "Speakers", _logger.Clone("AudioDevice"));
+            _outputMixer = new LinearMixerAutoConforming(_outputAudioGraph, _outputAudioFormat, "Mixer", readForever: true, logger: _logger.Clone("AudioMixer"));
+            _speechSynth = new SapiSpeechSynth(_logger.Clone("SAPI"), _threadPool, AudioSampleFormat.Mono(16000), NullMetricCollector.Singleton, DimensionSet.Empty, speechPoolSize: 1);
 
             ILGScriptCompiler lgScriptCompiler = new CodeDomLGScriptCompiler();
             IList<VirtualPath> lgFiles = new List<VirtualPath>();
@@ -97,13 +103,23 @@ namespace Archangel
         {
             try
             {
-                ILGPattern pattern = _lgEngine.GetPattern("TimeRemaining", new ClientContext() { Locale = "en-us" }, _logger.Clone("LG"))
+                ILGPattern pattern = _lgEngine.GetPattern("TimeRemaining", new ClientContext() { Locale = LanguageCode.ENGLISH }, _logger.Clone("LG"))
                     .Sub("time", timeRemaining);
                 RenderedLG rendered = await pattern.Render();
-                SynthesizedSpeech speech = await _speechSynth.SynthesizeSpeechAsync(rendered.Spoken, "en-us");
-                AudioChunk sample = speech.Audio.ToPCM();
-                double d= sample.PeakVolumeDb();
-                _mixer.PlaySound(sample);
+                IAudioSampleSource speechSynthStream = await _speechSynth.SynthesizeSpeechToStreamAsync(
+                    new SpeechSynthesisRequest()
+                    {
+                        Locale = LanguageCode.ENGLISH,
+                        Plaintext = rendered.Text,
+                        Ssml = rendered.Spoken,
+                        VoiceGender = VoiceGender.Female
+                    },
+                    _outputAudioGraph,
+                    CancellationToken.None,
+                    DefaultRealTimeProvider.Singleton,
+                    _logger.Clone("SpeechSynth"));
+
+                _outputMixer.AddInput(speechSynthStream, takeOwnership: true);
             }
             catch (Exception e)
             {
@@ -114,7 +130,7 @@ namespace Archangel
         public async Task Suspend()
         {
             _logger.Log("Time restriction enforced - suspending computer");
-            await _audioDevice.Suspend();
+            await _audioDevice.StopPlayback();
             try
             {
                 // The computer should go asleep here before this next line finishes
@@ -122,7 +138,7 @@ namespace Archangel
             }
             finally
             {
-                await _audioDevice.Resume();
+                await _audioDevice.StartPlayback(DefaultRealTimeProvider.Singleton);
             }
         }
 
@@ -144,8 +160,8 @@ namespace Archangel
             if (disposing)
             {
                 _logic.Stop().Await();
-                _mixer?.StopPlaying();
-                _mixer?.Dispose();
+                _audioDevice?.StopPlayback();
+                _outputMixer?.Dispose();
                 _audioDevice?.Dispose();
                 _speechSynth?.Dispose();
             }

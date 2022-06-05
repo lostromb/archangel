@@ -1,4 +1,4 @@
-﻿using Durandal.Common.Utils.Json;
+﻿using Durandal.Common.IO.Json;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -23,13 +23,13 @@ namespace Archangel
         /// <summary>
         /// The amount of use time granted per day
         /// </summary>
-        [JsonConverter(typeof(JsonTimeSpanStringSerializer))]
+        [JsonConverter(typeof(JsonTimeSpanStringConverter))]
         public TimeSpan TimeAllotmentPerDay { get; set; }
 
         /// <summary>
         /// The amount of time allotment remaining for the current day
         /// </summary>
-        [JsonConverter(typeof(JsonTimeSpanStringSerializer))]
+        [JsonConverter(typeof(JsonTimeSpanStringConverter))]
         public TimeSpan TimeRemainingToday { get; set; }
 
         /// <summary>
