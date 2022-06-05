@@ -26,6 +26,7 @@
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <Prefer32Bit>true</Prefer32Bit>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|AnyCPU'">
     <OutputPath>bin\Release\</OutputPath>
@@ -37,6 +38,7 @@
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <Prefer32Bit>true</Prefer32Bit>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="BouncyCastle.Crypto, Version=1.8.9.0, Culture=neutral, PublicKeyToken=0e99375e54769942">
@@ -106,6 +108,13 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CoreLogic.cs" />
+    <Compile Include="DSUClient\Client.cs" />
+    <Compile Include="DSUClient\ControllerState.cs" />
+    <Compile Include="DSUClient\Protocol\ControllerData.cs" />
+    <Compile Include="DSUClient\Protocol\ControllerInfo.cs" />
+    <Compile Include="DSUClient\Protocol\Header.cs" />
+    <Compile Include="DSUClient\Protocol\MessageType.cs" />
+    <Compile Include="DSUClient\Protocol\SharedResponse.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
