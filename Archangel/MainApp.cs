@@ -25,6 +25,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Vanara.PInvoke;
 
 namespace Archangel
 {
@@ -49,7 +50,7 @@ namespace Archangel
             _threadPool = new TaskThreadPool(NullMetricCollector.Singleton, DimensionSet.Empty);
 
             NLPToolsCollection nlpTools = new NLPToolsCollection();
-            nlpTools.Add(LanguageCode.ENGLISH, new NLPTools()
+            nlpTools.Add(LanguageCode.Parse("en-us"), new NLPTools()
             {
                 WordBreaker = new EnglishWholeWordBreaker(),
                 FeaturizationWordBreaker = new EnglishWordBreaker(),
@@ -64,6 +65,8 @@ namespace Archangel
             _audioDevice = new DirectSoundPlayer(_outputAudioGraph, _outputAudioFormat, "Speakers", _logger.Clone("AudioDevice"));
             _outputMixer = new LinearMixerAutoConforming(_outputAudioGraph, _outputAudioFormat, "Mixer", readForever: true, logger: _logger.Clone("AudioMixer"));
             _speechSynth = new SapiSpeechSynth(_logger.Clone("SAPI"), _threadPool, AudioSampleFormat.Mono(16000), NullMetricCollector.Singleton, DimensionSet.Empty, speechPoolSize: 1);
+            _outputMixer.ConnectOutput(_audioDevice);
+            _audioDevice.StartPlayback(DefaultRealTimeProvider.Singleton);
 
             ILGScriptCompiler lgScriptCompiler = new CodeDomLGScriptCompiler();
             IList<VirtualPath> lgFiles = new List<VirtualPath>();
@@ -103,13 +106,13 @@ namespace Archangel
         {
             try
             {
-                ILGPattern pattern = _lgEngine.GetPattern("TimeRemaining", new ClientContext() { Locale = LanguageCode.ENGLISH }, _logger.Clone("LG"))
+                ILGPattern pattern = _lgEngine.GetPattern("TimeRemaining", new ClientContext() { Locale = LanguageCode.Parse("en-us") }, _logger.Clone("LG"))
                     .Sub("time", timeRemaining);
                 RenderedLG rendered = await pattern.Render();
                 IAudioSampleSource speechSynthStream = await _speechSynth.SynthesizeSpeechToStreamAsync(
                     new SpeechSynthesisRequest()
                     {
-                        Locale = LanguageCode.ENGLISH,
+                        Locale = LanguageCode.Parse("en-us"),
                         Plaintext = rendered.Text,
                         Ssml = rendered.Spoken,
                         VoiceGender = VoiceGender.Female
@@ -165,6 +168,18 @@ namespace Archangel
                 _audioDevice?.Dispose();
                 _speechSynth?.Dispose();
             }
+        }
+
+        public static void ShutdownComputer()
+        {
+            Process shutdownProcess = Process.Start(
+                new ProcessStartInfo()
+                {
+                    FileName = "shutdown.exe",
+                    Arguments = "/s /t 10",
+                    CreateNoWindow = true
+                });
+            shutdownProcess.WaitForExit();
         }
         
         [DllImport("powrprof.dll", SetLastError = true)]
